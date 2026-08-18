@@ -206,6 +206,35 @@ systemctl status agentrouter-proxy --no-pager && journalctl -u agentrouter-proxy
 
 ---
 
+## Obtain the local proxy token
+
+`PROXY_AUTH_TOKEN` is the local credential used by coding agents to authenticate to the proxy. It is separate from the real upstream `AR_API_KEY`.
+
+For the systemd installation above, read the configured token from `/etc/agentrouter-proxy.env`. To load it without printing it:
+
+```bash
+export AR_PROXY_KEY="$(sudo sed -n "s/^PROXY_AUTH_TOKEN=//p" /etc/agentrouter-proxy.env)"
+test -n "$AR_PROXY_KEY" && echo "Proxy token loaded"
+```
+
+Use it with clients as:
+
+```text
+Base URL: http://127.0.0.1:8318/v1
+Model:    claude-haiku-4-5
+API key:  $AR_PROXY_KEY
+```
+
+To explicitly display the local token:
+
+```bash
+sudo sed -n "s/^PROXY_AUTH_TOKEN=//p" /etc/agentrouter-proxy.env
+```
+
+> The last command prints the local proxy secret. Do not publish it. Coding clients should use `PROXY_AUTH_TOKEN`, not the real `AR_API_KEY`.
+
+---
+
 ## Why this exists
 
 AgentRouter can offer unusually attractive access to expensive coding models, including **up to $125 in promotional credit for eligible new users**. The remaining problem is client compatibility: not every coding agent can communicate with AgentRouter directly.
@@ -929,6 +958,35 @@ cd agentrouter-rewrite-proxy && git pull --ff-only && go test ./... && go build 
 ```bash
 systemctl status agentrouter-proxy --no-pager && journalctl -u agentrouter-proxy -n 20 --no-pager
 ```
+
+---
+
+## Как получить локальный proxy token
+
+`PROXY_AUTH_TOKEN` — локальный credential, которым coding agents авторизуются перед proxy. Это не настоящий upstream `AR_API_KEY`.
+
+При описанной выше systemd-установке token находится в `/etc/agentrouter-proxy.env`. Загрузить его в shell без вывода на экран:
+
+```bash
+export AR_PROXY_KEY="$(sudo sed -n "s/^PROXY_AUTH_TOKEN=//p" /etc/agentrouter-proxy.env)"
+test -n "$AR_PROXY_KEY" && echo "Proxy token loaded"
+```
+
+Настройка клиента:
+
+```text
+Base URL: http://127.0.0.1:8318/v1
+Model:    claude-haiku-4-5
+API key:  $AR_PROXY_KEY
+```
+
+Если token нужно явно увидеть или скопировать:
+
+```bash
+sudo sed -n "s/^PROXY_AUTH_TOKEN=//p" /etc/agentrouter-proxy.env
+```
+
+> Последняя команда выводит локальный proxy secret. Не публикуйте его. Coding clients должны использовать `PROXY_AUTH_TOKEN`, а не настоящий `AR_API_KEY`.
 
 ---
 
