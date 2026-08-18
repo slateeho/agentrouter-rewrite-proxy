@@ -148,8 +148,8 @@ func (s *Server) runWarmup(ctx context.Context) {
 // runDiscovery mirrors scheduleDiscovery: only runs when AR_API_KEY is set,
 // fetching immediately then every DiscoveryInterval.
 func (s *Server) runDiscovery(ctx context.Context, client *http.Client) {
-	if s.cfg.ARAPIKey == "" {
-		s.log.Info("Model discovery disabled (no AR_API_KEY set), using static list")
+	if s.cfg.ARAPIKey == "" || (s.cfg.ClientModelAlias != "" && s.cfg.UpstreamModel != "") {
+		s.log.Info("Model discovery disabled (no API key or alias mode), using static list")
 		return
 	}
 	s.discovery.Fetch(ctx, client, s.cfg.TargetHost, s.cfg.TargetPort, s.cfg.ARAPIKey)
