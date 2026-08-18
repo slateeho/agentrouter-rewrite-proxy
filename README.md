@@ -1,16 +1,214 @@
 # AgentRouter Model Alias Proxy
 
-> A local compatibility gateway that makes AgentRouter usable with a broader range of Claude- and OpenAI-compatible coding agents.
+![Go](https://img.shields.io/badge/Go-proxy-00ADD8?logo=go)
+![Anthropic](https://img.shields.io/badge/API-Anthropic%20Messages-black)
+![OpenAI](https://img.shields.io/badge/API-OpenAI%20Compatible-412991)
+![AgentRouter](https://img.shields.io/badge/upstream-AgentRouter-orange)
+![systemd](https://img.shields.io/badge/deployment-systemd-blue)
+
+> **Use AgentRouter with more AI coding agents.** WAF-compatible transport, Claude model aliasing, Anthropic/OpenAI APIs, SSE rewriting, and local credential isolation.
 
 [English](#english) · [Русский](#русский)
+
+> **Why AgentRouter?** New users may receive **up to $125 in promotional credit**, making otherwise expensive coding models significantly more accessible. This proxy focuses on making that access usable from a wider range of coding clients.
 
 ---
 
 # English
 
-## Why this project exists
+## Installation
 
-AgentRouter can offer unusually attractive access to expensive coding models, including promotional or discounted access for new users.
+### Quick build
+
+```bash
+git clone https://github.com/slateeho/agentrouter-rewrite-proxy.git && cd agentrouter-rewrite-proxy && go test ./... && go build -trimpath -ldflags="-s -w" -o dist/proxy ./cmd/proxy
+```
+
+Run directly:
+
+```bash
+cd agentrouter-rewrite-proxy && cp .env.example .env && ${EDITOR:-nano} .env && ./dist/proxy
+```
+
+---
+
+### Full systemd install
+
+```bash
+git clone https://github.com/slateeho/agentrouter-rewrite-proxy.git && \
+cd agentrouter-rewrite-proxy && \
+go test ./... && \
+go build -trimpath -ldflags="-s -w" -o /tmp/agentrouter-proxy ./cmd/proxy && \
+sudo install -m 0755 /tmp/agentrouter-proxy /usr/local/bin/agentrouter-proxy
+```
+
+Create the proxy configuration:
+
+```bash
+sudo tee /etc/agentrouter-proxy.env >/dev/null <<'EOF'
+LISTEN_ADDRESS=127.0.0.1
+LISTEN_PORT=8318
+
+TARGET_PROTOCOL=https
+TARGET_HOST=agentrouter.org
+TARGET_PORT=443
+
+PROXY_AUTH_TOKEN=REPLACE_WITH_LOCAL_TOKEN
+AR_API_KEY=REPLACE_WITH_AGENTROUTER_API_KEY
+
+CLIENT_MODEL_ALIAS=claude-haiku-4-5
+UPSTREAM_MODEL=claude-opus-5
+MODELS_CSV=claude-haiku-4-5
+
+LOG_LEVEL=info
+EOF
+
+sudo chmod 600 /etc/agentrouter-proxy.env
+sudo chown root:root /etc/agentrouter-proxy.env
+```
+
+Create the systemd unit:
+
+```bash
+sudo tee /etc/systemd/system/agentrouter-proxy.service >/dev/null <<'EOF'
+[Unit]
+Description=AgentRouter Model Alias Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/agentrouter-proxy.env
+ExecStart=/usr/local/bin/agentrouter-proxy
+
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now agentrouter-proxy
+```
+
+Verify:
+
+```bash
+systemctl status agentrouter-proxy --no-pager && \
+curl --noproxy '*' -s http://127.0.0.1:8318/health | jq
+```
+
+---
+
+### Full install in one copy-paste block
+
+The following performs the complete build and systemd installation. Replace the two credential placeholders before running it.
+
+```bash
+git clone https://github.com/slateeho/agentrouter-rewrite-proxy.git && \
+cd agentrouter-rewrite-proxy && \
+go test ./... && \
+go build -trimpath -ldflags="-s -w" -o /tmp/agentrouter-proxy ./cmd/proxy && \
+sudo install -m 0755 /tmp/agentrouter-proxy /usr/local/bin/agentrouter-proxy && \
+sudo tee /etc/agentrouter-proxy.env >/dev/null <<'ENVEOF'
+LISTEN_ADDRESS=127.0.0.1
+LISTEN_PORT=8318
+TARGET_PROTOCOL=https
+TARGET_HOST=agentrouter.org
+TARGET_PORT=443
+PROXY_AUTH_TOKEN=REPLACE_WITH_LOCAL_TOKEN
+AR_API_KEY=REPLACE_WITH_AGENTROUTER_API_KEY
+CLIENT_MODEL_ALIAS=claude-haiku-4-5
+UPSTREAM_MODEL=claude-opus-5
+MODELS_CSV=claude-haiku-4-5
+LOG_LEVEL=info
+ENVEOF
+sudo chmod 600 /etc/agentrouter-proxy.env && \
+sudo chown root:root /etc/agentrouter-proxy.env && \
+sudo tee /etc/systemd/system/agentrouter-proxy.service >/dev/null <<'SERVICEEOF'
+[Unit]
+Description=AgentRouter Model Alias Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/agentrouter-proxy.env
+ExecStart=/usr/local/bin/agentrouter-proxy
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+sudo systemctl daemon-reload && \
+sudo systemctl enable --now agentrouter-proxy && \
+sleep 2 && \
+systemctl status agentrouter-proxy --no-pager
+```
+
+---
+
+### Safer interactive install
+
+This version avoids putting the AgentRouter API key directly into the command itself.
+
+```bash
+read -rsp 'AgentRouter API key: ' AR_API_KEY && echo && \
+PROXY_AUTH_TOKEN="local-$(openssl rand -hex 24)" && \
+git clone https://github.com/slateeho/agentrouter-rewrite-proxy.git && \
+cd agentrouter-rewrite-proxy && \
+go test ./... && \
+go build -trimpath -ldflags="-s -w" -o /tmp/agentrouter-proxy ./cmd/proxy && \
+sudo install -m 0755 /tmp/agentrouter-proxy /usr/local/bin/agentrouter-proxy && \
+printf '%s\n' \
+'LISTEN_ADDRESS=127.0.0.1' \
+'LISTEN_PORT=8318' \
+'TARGET_PROTOCOL=https' \
+'TARGET_HOST=agentrouter.org' \
+'TARGET_PORT=443' \
+"PROXY_AUTH_TOKEN=$PROXY_AUTH_TOKEN" \
+"AR_API_KEY=$AR_API_KEY" \
+'CLIENT_MODEL_ALIAS=claude-haiku-4-5' \
+'UPSTREAM_MODEL=claude-opus-5' \
+'MODELS_CSV=claude-haiku-4-5' \
+'LOG_LEVEL=info' | sudo tee /etc/agentrouter-proxy.env >/dev/null && \
+sudo chmod 600 /etc/agentrouter-proxy.env
+```
+
+Then install the systemd unit from the previous section and start the service.
+
+---
+
+### Update an existing installation
+
+```bash
+cd agentrouter-rewrite-proxy && git pull --ff-only && go test ./... && go build -trimpath -ldflags="-s -w" -o /tmp/agentrouter-proxy ./cmd/proxy && sudo systemctl stop agentrouter-proxy && sudo install -m 0755 /tmp/agentrouter-proxy /usr/local/bin/agentrouter-proxy && sudo systemctl start agentrouter-proxy
+```
+
+Check the running version:
+
+```bash
+systemctl status agentrouter-proxy --no-pager && journalctl -u agentrouter-proxy -n 20 --no-pager
+```
+
+---
+
+## Why this exists
+
+AgentRouter can offer unusually attractive access to expensive coding models, including **up to $125 in promotional credit for eligible new users**. The remaining problem is client compatibility: not every coding agent can communicate with AgentRouter directly.
 
 The problem is that having:
 
@@ -127,7 +325,7 @@ From the client's perspective, the model identity remains stable throughout the 
 
 ---
 
-## Why use `claude-haiku-4-5` as the client-facing alias?
+## Why expose `claude-haiku-4-5` to clients?
 
 Claude Haiku 4.5 is a useful compatibility identity because it belongs to Anthropic's fast Claude family and is widely recognizable by Claude-oriented tooling.
 
@@ -192,7 +390,7 @@ The upstream inference itself is still Opus 5.
 
 ---
 
-## Wider coding-agent compatibility
+## Use AgentRouter from more coding agents
 
 AgentRouter already works with several established coding tools.
 
@@ -467,7 +665,7 @@ This is especially useful when experimenting with multiple coding agents or IDE 
 
 ---
 
-## What this project provides
+## Features
 
 ```text id="3h1hiv"
 ✅ AgentRouter WAF compatibility
@@ -483,7 +681,7 @@ This is especially useful when experimenting with multiple coding agents or IDE 
 
 ---
 
-## What this project does NOT provide
+## What it deliberately does not do
 
 ```text id="l043at"
 ❌ cheaper Opus inference through a Haiku alias
@@ -544,9 +742,199 @@ That makes AgentRouter easier to use with existing tools while keeping its upstr
 
 # Русский
 
-## Зачем существует этот проект
+## Установка
 
-AgentRouter может давать очень привлекательный доступ к дорогим coding-моделям, в том числе за счет промо-условий и скидок для новых пользователей.
+### Быстрая сборка
+
+```bash
+git clone https://github.com/slateeho/agentrouter-rewrite-proxy.git && cd agentrouter-rewrite-proxy && go test ./... && go build -trimpath -ldflags="-s -w" -o dist/proxy ./cmd/proxy
+```
+
+Запустить напрямую:
+
+```bash
+cd agentrouter-rewrite-proxy && cp .env.example .env && ${EDITOR:-nano} .env && ./dist/proxy
+```
+
+---
+
+### Полная установка с systemd
+
+```bash
+git clone https://github.com/slateeho/agentrouter-rewrite-proxy.git && \
+cd agentrouter-rewrite-proxy && \
+go test ./... && \
+go build -trimpath -ldflags="-s -w" -o /tmp/agentrouter-proxy ./cmd/proxy && \
+sudo install -m 0755 /tmp/agentrouter-proxy /usr/local/bin/agentrouter-proxy
+```
+
+Создать конфигурацию прокси:
+
+```bash
+sudo tee /etc/agentrouter-proxy.env >/dev/null <<'EOF'
+LISTEN_ADDRESS=127.0.0.1
+LISTEN_PORT=8318
+
+TARGET_PROTOCOL=https
+TARGET_HOST=agentrouter.org
+TARGET_PORT=443
+
+PROXY_AUTH_TOKEN=REPLACE_WITH_LOCAL_TOKEN
+AR_API_KEY=REPLACE_WITH_AGENTROUTER_API_KEY
+
+CLIENT_MODEL_ALIAS=claude-haiku-4-5
+UPSTREAM_MODEL=claude-opus-5
+MODELS_CSV=claude-haiku-4-5
+
+LOG_LEVEL=info
+EOF
+
+sudo chmod 600 /etc/agentrouter-proxy.env
+sudo chown root:root /etc/agentrouter-proxy.env
+```
+
+Создать systemd unit:
+
+```bash
+sudo tee /etc/systemd/system/agentrouter-proxy.service >/dev/null <<'EOF'
+[Unit]
+Description=AgentRouter Model Alias Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/agentrouter-proxy.env
+ExecStart=/usr/local/bin/agentrouter-proxy
+
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now agentrouter-proxy
+```
+
+Проверить:
+
+```bash
+systemctl status agentrouter-proxy --no-pager && \
+curl --noproxy '*' -s http://127.0.0.1:8318/health | jq
+```
+
+---
+
+### Полная установка в один блок
+
+Следующая команда выполняет полную сборку и установку systemd. Замените два placeholder'а для учётных данных перед запуском.
+
+```bash
+git clone https://github.com/slateeho/agentrouter-rewrite-proxy.git && \
+cd agentrouter-rewrite-proxy && \
+go test ./... && \
+go build -trimpath -ldflags="-s -w" -o /tmp/agentrouter-proxy ./cmd/proxy && \
+sudo install -m 0755 /tmp/agentrouter-proxy /usr/local/bin/agentrouter-proxy && \
+sudo tee /etc/agentrouter-proxy.env >/dev/null <<'ENVEOF'
+LISTEN_ADDRESS=127.0.0.1
+LISTEN_PORT=8318
+TARGET_PROTOCOL=https
+TARGET_HOST=agentrouter.org
+TARGET_PORT=443
+PROXY_AUTH_TOKEN=REPLACE_WITH_LOCAL_TOKEN
+AR_API_KEY=REPLACE_WITH_AGENTROUTER_API_KEY
+CLIENT_MODEL_ALIAS=claude-haiku-4-5
+UPSTREAM_MODEL=claude-opus-5
+MODELS_CSV=claude-haiku-4-5
+LOG_LEVEL=info
+ENVEOF
+sudo chmod 600 /etc/agentrouter-proxy.env && \
+sudo chown root:root /etc/agentrouter-proxy.env && \
+sudo tee /etc/systemd/system/agentrouter-proxy.service >/dev/null <<'SERVICEEOF'
+[Unit]
+Description=AgentRouter Model Alias Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/agentrouter-proxy.env
+ExecStart=/usr/local/bin/agentrouter-proxy
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+sudo systemctl daemon-reload && \
+sudo systemctl enable --now agentrouter-proxy && \
+sleep 2 && \
+systemctl status agentrouter-proxy --no-pager
+```
+
+---
+
+### Более безопасная интерактивная установка
+
+Эта версия избегает передачи API-ключа AgentRouter прямо в командной строке.
+
+```bash
+read -rsp 'Ключ AgentRouter API: ' AR_API_KEY && echo && \
+PROXY_AUTH_TOKEN="local-$(openssl rand -hex 24)" && \
+git clone https://github.com/slateeho/agentrouter-rewrite-proxy.git && \
+cd agentrouter-rewrite-proxy && \
+go test ./... && \
+go build -trimpath -ldflags="-s -w" -o /tmp/agentrouter-proxy ./cmd/proxy && \
+sudo install -m 0755 /tmp/agentrouter-proxy /usr/local/bin/agentrouter-proxy && \
+printf '%s\n' \
+'LISTEN_ADDRESS=127.0.0.1' \
+'LISTEN_PORT=8318' \
+'TARGET_PROTOCOL=https' \
+'TARGET_HOST=agentrouter.org' \
+'TARGET_PORT=443' \
+"PROXY_AUTH_TOKEN=$PROXY_AUTH_TOKEN" \
+"AR_API_KEY=$AR_API_KEY" \
+'CLIENT_MODEL_ALIAS=claude-haiku-4-5' \
+'UPSTREAM_MODEL=claude-opus-5' \
+'MODELS_CSV=claude-haiku-4-5' \
+'LOG_LEVEL=info' | sudo tee /etc/agentrouter-proxy.env >/dev/null && \
+sudo chmod 600 /etc/agentrouter-proxy.env
+```
+
+Затем установите systemd unit из предыдущего раздела и запустите службу.
+
+---
+
+### Обновление существующей установки
+
+```bash
+cd agentrouter-rewrite-proxy && git pull --ff-only && go test ./... && go build -trimpath -ldflags="-s -w" -o /tmp/agentrouter-proxy ./cmd/proxy && sudo systemctl stop agentrouter-proxy && sudo install -m 0755 /tmp/agentrouter-proxy /usr/local/bin/agentrouter-proxy && sudo systemctl start agentrouter-proxy
+```
+
+Проверить версию:
+
+```bash
+systemctl status agentrouter-proxy --no-pager && journalctl -u agentrouter-proxy -n 20 --no-pager
+```
+
+---
+
+## Зачем нужен этот проект
+
+AgentRouter может давать очень привлекательный доступ к дорогим coding-моделям, включая **до $125 промо-кредита для новых пользователей, если предложение доступно для аккаунта**. Основная оставшаяся проблема — совместимость: далеко не каждый coding agent способен напрямую работать с AgentRouter.
 
 Но наличие:
 
@@ -663,7 +1051,7 @@ claude-haiku-4-5
 
 ---
 
-## Почему в качестве client alias используется `claude-haiku-4-5`
+## Почему клиент видит `claude-haiku-4-5`
 
 Claude Haiku 4.5 — удобная compatibility identity, поскольку это хорошо узнаваемая модель из fast-линейки Claude.
 
@@ -728,7 +1116,7 @@ Alias — это **механизм клиентской совместимос�
 
 ---
 
-## Совместимость с более широкой экосистемой coding agents
+## Больше совместимых coding agents
 
 AgentRouter уже работает с несколькими известными coding tools.
 
@@ -1003,7 +1391,7 @@ AgentRouter
 
 ---
 
-## Что дает проект
+## Возможности
 
 ```text id="8hptt4"
 ✅ AgentRouter WAF compatibility
@@ -1019,7 +1407,7 @@ AgentRouter
 
 ---
 
-## Что проект НЕ делает
+## Чего проект намеренно не делает
 
 ```text id="z4ojm6"
 ❌ более дешевый Opus через Haiku alias
