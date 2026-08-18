@@ -236,6 +236,70 @@ Use `http://127.0.0.1:8318/v1` as the base URL, `claude-haiku-4-5` as the client
 
 ---
 
+## Qwen Code CLI
+
+Qwen Code can use the proxy through its Anthropic provider. Qwen appends `/v1/messages` itself, so its `baseUrl` must be `http://127.0.0.1:8318` **without `/v1`**.
+
+Configure an existing `~/.qwen/settings.json` in one command using the local proxy token:
+
+```bash
+AR_PROXY_KEY="$(sudo grep ^PROXY_AUTH_TOKEN= /etc/agentrouter-proxy.env | cut -d= -f2-)" && jq --arg key "$AR_PROXY_KEY" --arg id "claude-haiku-4-5" --arg url "http://127.0.0.1:8318" --arg env "AR_PROXY_KEY" --arg auth "anthropic" ".env.AR_PROXY_KEY=\$key | .modelProviders.anthropic[0].id=\$id | .modelProviders.anthropic[0].name=\$id | .modelProviders.anthropic[0].baseUrl=\$url | .modelProviders.anthropic[0].envKey=\$env | .security.auth.selectedType=\$auth | .model.name=\$id | .model.baseUrl=\$url" ~/.qwen/settings.json > ~/.qwen/settings.json.tmp && mv ~/.qwen/settings.json.tmp ~/.qwen/settings.json
+```
+
+Result:
+
+```text
+Qwen model:     claude-haiku-4-5
+Qwen baseUrl:   http://127.0.0.1:8318
+Actual request: http://127.0.0.1:8318/v1/messages
+Proxy upstream: claude-opus-5
+```
+
+If Qwen reports `Route /v1/v1/messages not found`, `/v1` is incorrectly present in Qwen `baseUrl`.
+
+---
+
+## Why the smaller client context can be an advantage
+
+The client-facing `claude-haiku-4-5` identity gives Qwen Code a roughly 200K context budget even when the real upstream model can accept a much larger context. This acts as a deliberate **context governor** rather than a limitation.
+
+A coding agent with a very large context window can gradually accumulate hundreds of thousands of tokens of obsolete state: old command output, previous errors, superseded plans, repeated file reads, logs, tool results and implementation paths that are no longer relevant. Allowing an iterative coding session to drift toward a 1M-token working set can therefore increase both cost and **context rot**.
+
+With the smaller client-visible window, Qwen is pushed to compact much earlier:
+
+```text
+50K -> 100K -> 150K -> compact
+                     |
+                     v
+                  30-60K -> grow again
+```
+
+Instead of allowing:
+
+```text
+50K -> 150K -> 300K -> 500K -> 700K -> 1M
+```
+
+The upstream model still provides the stronger inference capability, but it usually receives a cleaner rolling working set rather than the complete raw history of a long terminal session. This is particularly useful for long coding-agent sessions containing large logs, test output, compiler traces, generated diffs, tool results and repeated diagnostics.
+
+### Additional optimizations
+
+**1. Use a cheaper compaction model.** Qwen can separate the main inference model from the model used to summarize old context. The expensive upstream model can remain responsible for coding and reasoning while a cheaper model performs compaction.
+
+**2. Use a cheaper fast model for auxiliary work.** Lightweight helper operations do not necessarily require the primary upstream model. Keeping the fast model inexpensive reduces background token cost while preserving the stronger model for important agent turns.
+
+**3. Control reasoning and output cost.** Input optimization alone is not enough when the upstream model can generate expensive reasoning or output tokens. For routine edits, inspections and command-driven work, a lower reasoning effort can be more economical; reserve higher effort for tasks that actually require it.
+
+### Compaction versus prompt caching
+
+Prompt caching can make a large stable prefix dramatically cheaper when most of the system prompt, tool schemas, memory and previous context are cache hits. Therefore the optimal strategy is **not** to compact as aggressively as possible. Replacing a stable cached prefix with a new summary can require new cache creation.
+
+The useful combination is instead: good cache reuse, a bounded rolling context, cheap compaction and selective reasoning effort. Even when prompt-cache hits make large prefixes inexpensive, Qwen still has native context accounting, warning thresholds, automatic compaction and dedicated compaction-model support that prevent an ordinary iterative coding session from silently growing toward the full 1M upstream context.
+
+In other words, the model alias can provide **large-model reasoning with a smaller managed working set**, while prompt caching handles repeated stable context efficiently.
+
+---
+
 ## Why this exists
 
 AgentRouter can offer unusually attractive access to expensive coding models, including **up to $125 in promotional credit for eligible new users**. The remaining problem is client compatibility: not every coding agent can communicate with AgentRouter directly.
@@ -518,7 +582,7 @@ They do not need to know which AgentRouter model is actually used upstream.
   "messages": [
     {
       "role": "user",
-      "content": "Fix this Kubernetes manifest"
+      "content": "Fix this code"
     }
   ]
 }
@@ -532,7 +596,7 @@ They do not need to know which AgentRouter model is actually used upstream.
   "messages": [
     {
       "role": "user",
-      "content": "Fix this Kubernetes manifest"
+      "content": "Fix this code"
     }
   ]
 }
@@ -992,6 +1056,70 @@ export AR_PROXY_KEY="$(sudo sed -n "s/^PROXY_AUTH_TOKEN=//p" /etc/agentrouter-pr
 
 ---
 
+## Qwen Code CLI
+
+Qwen Code может использовать proxy через Anthropic provider. Qwen самостоятельно добавляет `/v1/messages`, поэтому `baseUrl` должен быть `http://127.0.0.1:8318` **без `/v1`**.
+
+Настроить существующий `~/.qwen/settings.json` одной командой с использованием локального proxy token:
+
+```bash
+AR_PROXY_KEY="$(sudo grep ^PROXY_AUTH_TOKEN= /etc/agentrouter-proxy.env | cut -d= -f2-)" && jq --arg key "$AR_PROXY_KEY" --arg id "claude-haiku-4-5" --arg url "http://127.0.0.1:8318" --arg env "AR_PROXY_KEY" --arg auth "anthropic" ".env.AR_PROXY_KEY=\$key | .modelProviders.anthropic[0].id=\$id | .modelProviders.anthropic[0].name=\$id | .modelProviders.anthropic[0].baseUrl=\$url | .modelProviders.anthropic[0].envKey=\$env | .security.auth.selectedType=\$auth | .model.name=\$id | .model.baseUrl=\$url" ~/.qwen/settings.json > ~/.qwen/settings.json.tmp && mv ~/.qwen/settings.json.tmp ~/.qwen/settings.json
+```
+
+Результат:
+
+```text
+Qwen model:     claude-haiku-4-5
+Qwen baseUrl:   http://127.0.0.1:8318
+Actual request: http://127.0.0.1:8318/v1/messages
+Proxy upstream: claude-opus-5
+```
+
+Если Qwen возвращает `Route /v1/v1/messages not found`, значит `/v1` ошибочно присутствует в Qwen `baseUrl`.
+
+---
+
+## Почему меньший client context может быть преимуществом
+
+Client-facing identity `claude-haiku-4-5` дает Qwen Code бюджет контекста около 200K даже тогда, когда реальная upstream-модель способна принять значительно больший context. В этой схеме это работает как намеренный **context governor**, а не просто ограничение.
+
+Coding agent с очень большим context window может постепенно накопить сотни тысяч токенов устаревшего состояния: старый command output, уже исправленные ошибки, отмененные планы, повторные чтения файлов, логи, tool results и более не актуальные варианты реализации. Если обычной итеративной сессии позволить расти к 1M tokens, увеличиваются стоимость и риск **context rot**.
+
+При меньшем client-visible window Qwen вынужден выполнять compaction значительно раньше:
+
+```text
+50K -> 100K -> 150K -> compact
+                     |
+                     v
+                  30-60K -> новый рост
+```
+
+вместо:
+
+```text
+50K -> 150K -> 300K -> 500K -> 700K -> 1M
+```
+
+Upstream-модель по-прежнему выполняет основное сильное reasoning, но обычно получает более чистый rolling working set вместо полного сырого history длинной terminal-сессии. Это особенно полезно для длинных coding-agent sessions с большими логами, test output, compiler traces, generated diffs, tool results и повторяющейся диагностикой.
+
+### Дополнительные оптимизации
+
+**1. Использовать дешевую модель для compaction.** Qwen позволяет отделить основную inference model от модели, которая суммаризирует старый context. Дорогая upstream-модель остается для coding и reasoning, а compaction выполняется более дешевой моделью.
+
+**2. Использовать дешевую fast model для вспомогательных операций.** Легкие ancillary tasks не обязаны выполняться основной дорогой моделью. Это снижает фоновый token cost без потери качества основных agent turns.
+
+**3. Контролировать reasoning и output cost.** Оптимизации input недостаточно, если upstream-модель генерирует большой объем дорогого reasoning/output. Для обычных edit, inspect и command-driven задач разумно использовать меньший effort, оставляя высокий effort для действительно сложных задач.
+
+### Compaction и prompt caching
+
+Prompt caching может сделать большой стабильный prefix значительно дешевле, когда system prompt, tool schemas, memory и предыдущий context в основном приходят как cache hits. Поэтому стратегия **compact как можно раньше** не всегда оптимальна: новый summary может изменить prefix и потребовать создания нового cache entry.
+
+Практически полезнее сочетание: высокий cache-hit rate, ограниченный rolling context, дешевая compaction model и контролируемый reasoning effort. Даже если prompt-cache hits сильно удешевляют большой prefix, Qwen имеет собственные context thresholds, automatic compaction, context accounting и отдельную compaction model, которые не дают обычной итеративной сессии незаметно разрастись до полного 1M upstream context.
+
+Таким образом, alias позволяет сочетать **reasoning большой модели с меньшим управляемым working set**, а prompt caching эффективно удешевляет повторяющуюся стабильную часть контекста.
+
+---
+
 ## Зачем нужен этот проект
 
 AgentRouter может давать очень привлекательный доступ к дорогим coding-моделям, включая **до $125 промо-кредита для новых пользователей, если предложение доступно для аккаунта**. Основная оставшаяся проблема — совместимость: далеко не каждый coding agent способен напрямую работать с AgentRouter.
@@ -1274,7 +1402,7 @@ GET /v1/models
   "messages": [
     {
       "role": "user",
-      "content": "Fix this Kubernetes manifest"
+      "content": "Fix this code"
     }
   ]
 }
@@ -1288,7 +1416,7 @@ GET /v1/models
   "messages": [
     {
       "role": "user",
-      "content": "Fix this Kubernetes manifest"
+      "content": "Fix this code"
     }
   ]
 }
